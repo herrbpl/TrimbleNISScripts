@@ -8,7 +8,7 @@
     .Parameter TrimbleExecutablePath
 		Path to Trimble NIS executable
     .Parameter WMSSourcePath
-		Path to WMS source  path. Defaults to \\ntserver2.sise\ASTV\NIS-PR\wms
+		Path to WMS source  path. Defaults to \\nis\NIS-PR\wms
     .Parameter WMSTargetPath
 		Path to WMS target path. Defaults to C:\Tekla\WMS
     .Parameter UpdateWMSConfig
@@ -19,20 +19,23 @@
 		Runs Trimble NIS
     .Parameter TrimbleArguments
 		Arguments for Trimble NIS Execution
+    .Parameter WhatIf
+		Simulate only and show paths. Does not copy files or run NIS
     .Parameter verbose
 		Verbose output
 	
 #>
 
 Param(
-  [string]$TrimbleConfigPath = "\\ntserver2.sise\ASTV\NIS-PR\config\NisLocalSettings-SiimTest.cfg",
-  [string]$TrimbleExecutablePath = "\\NIS\TeklaProgram\Xpipe\bin\Xpipe.exe",
-  [string]$WMSSourcePath = "\\ntserver2.sise\ASTV\NIS-PR\wms", 
+  [string]$TrimbleConfigPath = "\\nis\NIS-PR\config\NisLocalSettings.cfg",
+  [string]$TrimbleExecutablePath = "\\nis\TeklaProgram\Xpipe\bin\Xpipe.exe",
+  [string]$WMSSourcePath = "\\nis\NIS-PR\wms", 
   [string]$WMSTargetPath = "C:\Tekla\WMS",
   [switch]$UpdateWMSConfig = $False,
   [switch]$ForceUpdateWMSConfig = $False,
   [switch]$RunTrimbleNIS = $False,
   [string]$TrimbleArguments = "",
+  [switch]$WhatIf = $False,
   [switch]$verbose
 )
 
@@ -77,6 +80,20 @@ if ($UpdateWMSConfig) {
         throw ("Cannot find WMSTargetPath '{1}'" -f $WMSTargetPath)
         exit 1
     }
+
+    Write-Verbose "Config: " 
+    Write-Verbose ("-TrimbleConfigPath = '{0}'" -f $TrimbleConfigPath)
+    Write-Verbose ("-TrimbleExecutablePath = '{0}'" -f $TrimbleExecutablePath)
+    Write-Verbose ("-WMSSourcePath = '{0}'" -f $WMSSourcePath)
+    Write-Verbose ("-WMSTargetPath = '{0}'" -f $WMSTargetPath)
+    Write-Verbose ("-UpdateWMSConfig = '{0}'" -f $UpdateWMSConfig)
+    Write-Verbose ("-ForceUpdateWMSConfig = '{0}'" -f $ForceUpdateWMSConfig)
+    Write-Verbose ("-RunTrimbleNIS = '{0}'" -f $RunTrimbleNIS)
+    Write-Verbose ("-TrimbleArguments = '{0}'" -f $TrimbleArguments)
+    Write-Verbose ("-WhatIf = '{0}'" -f $WhatIf)
+    Write-Verbose ("-verbose = '{0}'" -f $verbose)
+
+
 }
 
 
@@ -109,7 +126,8 @@ Function UpdateWMSConfig {
         
       [Parameter(Mandatory=$True)][string]$sourceDir,
       [Parameter(Mandatory=$True)][string]$targetDir,
-      [switch]$ForceUpdateWMSConfig = $False
+      [switch]$ForceUpdateWMSConfig = $False,
+      [switch]$WhatIf = $False
     )
 
     $tempFileName = [System.IO.Path]::GetRandomFileName()
@@ -154,7 +172,7 @@ Function UpdateWMSConfig {
 
     # Create target directory
 
-    if (!(Test-Path $targetDir)) {
+    if (!(Test-Path $targetDir) -and !$WhatIf) {
         new-item -ItemType Directory -Force -Path $targetDir | Out-Null
 
         $Acl = Get-Acl $targetDir
@@ -166,7 +184,7 @@ Function UpdateWMSConfig {
 
     
 
-    if (test-path ($targetDir+"\active.dat")) {
+    if ((test-path ($targetDir+"\active.dat")) -and !$WhatIf) {
 
         # active.dat is always updated                
         Remove-Item ($targetDir+"\active.dat") | Out-Null
@@ -176,7 +194,9 @@ Function UpdateWMSConfig {
 
     if (Test-IfCopyFile -sourcefile ($sourceDir+"\Transformations.xml") -targetfile ($targetDir+"\Transformations.xml") -ForceUpdate:$ForceUpdateWMSConfig) {
         Write-Verbose ("Updating {0}" -f ($targetDir+"\Transformations.xml"))
-        Copy-Item ($sourceDir+"\Transformations.xml") $targetDir -Force | Out-Null
+        if (!$WhatIf) {
+            Copy-Item ($sourceDir+"\Transformations.xml") $targetDir -Force | Out-Null
+        }
     }
 
 
@@ -193,16 +213,22 @@ Function UpdateWMSConfig {
             $mname = $line
             Write-Verbose    "Processing '$mname' on '$mpath'..." 
 
-            Write-Verbose  "'$sourceFolder' -> '$targetFolder'..." 
+            
 
             $targetFolder = Split-Path ( $mpath.Replace($sourceDir, $targetDir )) -Parent;
             $sourceFolder = Split-Path $mpath -Parent;
             $sourceRoot = $sourceDir + "\" + ($sourceFolder.Replace($sourceDir, "").Split('\\')[1])
             $targetRoot = $targetDir + "\" + ($targetFolder.Replace($targetDir, "").Split('\\')[1])
 
+            Write-Verbose  "'$sourceFolder' -> '$targetFolder'..." 
 
+            if ($targetFolder -eq $sourceFolder) {
+                  $VerbosePreference = $oldverbose
+                 throw "Target and source cannot be same directory"
+                 exit 1
+            }
 
-            if (!(Test-Path $targetRoot)) {
+            if (!(Test-Path $targetRoot) -and !$WhatIf) {
                 new-item -ItemType Directory -Force -Path $targetRoot | Out-Null
             }
 
@@ -212,11 +238,13 @@ Function UpdateWMSConfig {
             if (Test-IfCopyFile -sourcefile ($sourceRoot+"\"+$capFile) -targetfile ($targetRoot+"\"+$capFile) -ForceUpdate:$ForceUpdateWMSConfig) {
                 Write-Verbose ("Updating {0}" -f ($targetRoot+"\"+$capFile))
                 # Test-Path ($sourceRoot+"\"+$capFile)) {                                            
-                Copy-Item ($sourceRoot+"\"+$capFile) $targetRoot -Force | Out-Null
+                if (!$WhatIf) {
+                    Copy-Item ($sourceRoot+"\"+$capFile) $targetRoot -Force | Out-Null
+                }
             }
 
 
-            if (!(Test-Path $targetFolder)) {
+            if (!(Test-Path $targetFolder) -and !$WhatIf) {
                 new-item -ItemType Directory -Force -Path $targetFolder | Out-Null
             }
 
@@ -225,24 +253,31 @@ Function UpdateWMSConfig {
             # if (Test-Path ($sourceFolder+"\"+$milFile)) {
             if (Test-IfCopyFile -sourcefile ($sourceFolder+"\"+$milFile) -targetfile ($targetFolder+"\"+$milFile) -ForceUpdate:$ForceUpdateWMSConfig) {
                 Write-Verbose ("Updating {0}" -f ($sourceFolder+"\"+$milFile))
-                Copy-Item ($sourceFolder+"\"+$milFile) $targetFolder -Force | Out-Null
+                if (!$WhatIf) {
+                    Copy-Item ($sourceFolder+"\"+$milFile) $targetFolder -Force | Out-Null
+                }
             }
 
         
 
-            ($targetFolder + "\" + $milFile) | out-file -Append ($targetDir+"\Active.dat") -Encoding utf8
+            if (!$WhatIf) {
+                ($targetFolder + "\" + $milFile) | out-file -Append ($targetDir+"\Active.dat") -Encoding utf8
+            }
 
             $milFile = "Layer.dat"        
 
             #if (Test-Path ($sourceFolder+"\"+$milFile)) {
             if (Test-IfCopyFile -sourcefile ($sourceFolder+"\"+$milFile) -targetfile ($targetFolder+"\"+$milFile) -ForceUpdate:$ForceUpdateWMSConfig) {
                 Write-Verbose ("Updating {0}" -f ($sourceFolder+"\"+$milFile))
-                Copy-Item ($sourceFolder+"\"+$milFile) $targetFolder -Force | Out-Null
+                if (!$WhatIf) {
+                    Copy-Item ($sourceFolder+"\"+$milFile) $targetFolder -Force | Out-Null
+                }
             }
 
 
-            
-            $mname | out-file -Append  ($targetDir+"\Active.dat") -Encoding utf8
+            if (!$WhatIf) {
+                $mname | out-file -Append  ($targetDir+"\Active.dat") -Encoding utf8
+            }
         
         
 
@@ -259,11 +294,12 @@ Function UpdateWMSConfig {
       }
     }
 
-    # http://stackoverflow.com/questions/5596982/using-powershell-to-write-a-file-in-utf-8-without-the-bom
-    $MyFile = Get-Content ($targetDir+"\Active.dat")
-    $Utf8NoBomEncoding = New-Object System.Text.UTF8Encoding($False)
-    [System.IO.File]::WriteAllLines(($targetDir+"\Active.dat"), $MyFile, $Utf8NoBomEncoding)
-
+    if (!$WhatIf) {
+        # http://stackoverflow.com/questions/5596982/using-powershell-to-write-a-file-in-utf-8-without-the-bom
+        $MyFile = Get-Content ($targetDir+"\Active.dat")
+        $Utf8NoBomEncoding = New-Object System.Text.UTF8Encoding($False)
+        [System.IO.File]::WriteAllLines(($targetDir+"\Active.dat"), $MyFile, $Utf8NoBomEncoding)
+    }
 
 }
 
@@ -298,14 +334,14 @@ Function RunTrimbleNIS {
 
 if ($UpdateWMSConfig) {
     if ($ForceUpdateWMSConfig)  {
-        UpdateWMSConfig -sourceDir $WMSSourcePath -targetDir $WMSTargetPath  -ForceUpdateWMSConfig
+        UpdateWMSConfig -sourceDir $WMSSourcePath -targetDir $WMSTargetPath  -ForceUpdateWMSConfig -WhatIf:$WhatIf
     } else {
-        UpdateWMSConfig -sourceDir $WMSSourcePath -targetDir $WMSTargetPath  
+        UpdateWMSConfig -sourceDir $WMSSourcePath -targetDir $WMSTargetPath  -WhatIf:$WhatIf
     }
 }
 
 
-if ($RunTrimbleNIS) {
+if ($RunTrimbleNIS -and !$WhatIf ) {
     $exitcode = RunTrimbleNIS -TrimbleConfigPath $TrimbleConfigPath -TrimbleExecutablePath $TrimbleExecutablePath -TrimbleArguments $TrimbleArguments
 }
 
@@ -315,8 +351,8 @@ exit $exitcode
 # SIG # Begin signature block
 # MIINNwYJKoZIhvcNAQcCoIINKDCCDSQCAQExCzAJBgUrDgMCGgUAMGkGCisGAQQB
 # gjcCAQSgWzBZMDQGCisGAQQBgjcCAR4wJgIDAQAABBAfzDtgWUsITrck0sYpfvNR
-# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUHrN2qZDqxmwYRP+bQoF8IPO/
-# XbqgggqTMIIFFzCCA/+gAwIBAgITLQAAAvZBJVsiSnHa3wAAAAAC9jANBgkqhkiG
+# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUkf7YNyoBljirM7Ttu0dYovI3
+# 3OugggqTMIIFFzCCA/+gAwIBAgITLQAAAvZBJVsiSnHa3wAAAAAC9jANBgkqhkiG
 # 9w0BAQsFADBWMRQwEgYKCZImiZPyLGQBGRYEc2lzZTEZMBcGCgmSJomT8ixkARkW
 # CW50c2VydmVyMjEjMCEGA1UEAxMaQVMgVGFsbGlubmEgVmVzaSBPbmxpbmUgQ0Ew
 # HhcNMTYwMzE0MTIzMDQyWhcNMjEwMzEzMTIzMDQyWjBxMRQwEgYKCZImiZPyLGQB
@@ -377,11 +413,11 @@ exit $exitcode
 # BAMTGkFTIFRhbGxpbm5hIFZlc2kgT25saW5lIENBAhMtAAAC9kElWyJKcdrfAAAA
 # AAL2MAkGBSsOAwIaBQCgeDAYBgorBgEEAYI3AgEMMQowCKACgAChAoAAMBkGCSqG
 # SIb3DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQBgjcCAQsxDjAMBgorBgEEAYI3
-# AgEVMCMGCSqGSIb3DQEJBDEWBBTKVL/xF4NJ0i5p46ieK7CnHzhI5jANBgkqhkiG
-# 9w0BAQEFAASCAQAGmm3I2Uuixqw9RB/vKdD1fm2aHd+OPzmCJ/EJVyI4AZMa1YoB
-# OofLfaPYLXiDknr/wRGk+rJD+fAyRYxM8xn1YviFWNtKAWsmkXC90k7aoP/ZwaEI
-# kjPitQa76qR3S0A3ZRH9QieO9ACll+/HR+1CgSK8928eApPXkl4xsaO1HHvWF+FO
-# yan2m/+fDKkK79EU6N48PJ5PaCJ/snYtzfWjZh7BvRm/6msr3l5k0OudJ4eGh5Gn
-# kx1/0m1B9qCgtM3gqwwcosD4IuWRiw+NI67BO8of8rTp0HnrmFo8D+QefRsKJSWT
-# oLveJWRL40C23PE/VEUpZLEVVnHJv1C0Yu7G
+# AgEVMCMGCSqGSIb3DQEJBDEWBBSDkP5zc68tOLu0QenuCvyuRXV2WTANBgkqhkiG
+# 9w0BAQEFAASCAQCYF78a57BINejsfoearXrGuPqmTOy+aC61+ZevEoeSBJO695I7
+# O6YQvLHh71XsYk4xJ8AHIMa9Zn33JJjV3ftPIz5W7Eqf9PtzIiZ1h/Hwg6mOmCik
+# rNujCK8a0ajWNg3ioPSKV/4IUwmB3tfZxs5u8+tCO7ZUVvjsZ8Cvj676LNQVmIXM
+# fRZln+MUv7pQn4WWu67LaOT4v/Bmrp+KQuvhNiR8L+0Mob60w6A/128+ScGXW3dh
+# bzU6rPVzB/OUOeNQL8/N6qNjLPRLxXhaLTbMONwrLTgsRMLpoxcxaWur24/oT1pH
+# ZBE/330ZM25KctZfomJCVI5gkVBl1bmniPWG
 # SIG # End signature block
