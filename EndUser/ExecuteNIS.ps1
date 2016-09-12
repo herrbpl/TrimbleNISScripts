@@ -213,7 +213,7 @@ Function UpdateWMSConfig {
             $mname = $line
             Write-Verbose    "Processing '$mname' on '$mpath'..." 
 
-            
+            Write-Verbose  "'$sourceDir' -> '$targetDir'..."
 
             $targetFolder = Split-Path ( $mpath.Replace($sourceDir, $targetDir )) -Parent;
             $sourceFolder = Split-Path $mpath -Parent;
